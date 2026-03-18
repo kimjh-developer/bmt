@@ -171,6 +171,16 @@ CREATE TABLE PeaksSuccess (
     return result.length;
   }
 
+  Future<List<Mountain>> getMountainsForWorkout(int workoutId) async {
+    final db = await instance.database;
+    final result = await db.rawQuery('''
+      SELECT M.* FROM Mountains M
+      JOIN PeaksSuccess P ON M.id = P.mountainId
+      WHERE P.workoutId = ?
+    ''', [workoutId]);
+    return result.map((json) => Mountain.fromJson(json)).toList();
+  }
+
   // Mountains
   Future<List<Mountain>> getAllMountains() async {
     final db = await instance.database;
@@ -183,7 +193,9 @@ CREATE TABLE PeaksSuccess (
     final count = Sqflite.firstIntValue(
         await db.rawQuery('SELECT COUNT(*) FROM Mountains'));
     
-    if (count == 0) {
+    // If the DB only has the old small dataset, clear and reload
+    if (count == null || count < 1000) {
+      await db.rawDelete('DELETE FROM Mountains');
       // Load from JSON
       final String jsonString = await rootBundle.loadString('assets/mountains.json');
       final List<dynamic> jsonList = json.decode(jsonString);

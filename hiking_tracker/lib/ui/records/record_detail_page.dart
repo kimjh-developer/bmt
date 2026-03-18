@@ -18,6 +18,7 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
   final MapController _mapController = MapController();
   List<LocationPoint> _points = [];
   List<Photo> _photos = [];
+  List<Mountain> _mountains = [];
   bool _isLoading = true;
 
   @override
@@ -29,9 +30,11 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
   Future<void> _loadData() async {
     final points = await DatabaseHelper.instance.getLocationPoints(widget.workout.id!);
     final photos = await DatabaseHelper.instance.getPhotos(widget.workout.id!);
+    final mountains = await DatabaseHelper.instance.getMountainsForWorkout(widget.workout.id!);
     setState(() {
       _points = points;
       _photos = photos;
+      _mountains = mountains;
       _isLoading = false;
     });
 
@@ -66,6 +69,19 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
     );
   }
 
+  String _formatDuration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    final secs = seconds % 60;
+    if (hours > 0) {
+      return '$hours시간 $minutes분 $secs초';
+    } else if (minutes > 0) {
+      return '$minutes분 $secs초';
+    } else {
+      return '$secs초';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     List<LatLng> route = _points.map((p) => LatLng(p.latitude, p.longitude)).toList();
@@ -84,50 +100,72 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
       ),
     )).toList();
 
+    final titleText = _mountains.isNotEmpty 
+        ? _mountains.map((m) => m.name).join(', ') 
+        : '운동 상세';
+
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('운동 상세'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(titleText, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+        backgroundColor: Colors.white.withOpacity(0.8),
+        elevation: 0,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: _isLoading
         ? const Center(child: CircularProgressIndicator())
-        : Column(
+        : Stack(
             children: [
-              Container(
-                padding: const EdgeInsets.all(16.0),
-                color: Colors.blue.shade50,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildMetricColumn('거리', '${(widget.workout.totalDistanceMeters / 1000).toStringAsFixed(2)} km'),
-                    _buildMetricColumn('평균 속도', '${(widget.workout.averageSpeedMps * 3.6).toStringAsFixed(1)} km/h'),
-                  ],
+              FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: route.isNotEmpty ? route.last : const LatLng(37.5665, 126.9780),
+                  initialZoom: 14.0,
                 ),
-              ),
-              Expanded(
-                child: FlutterMap(
-                  mapController: _mapController,
-                  options: const MapOptions(
-                    initialCenter: LatLng(37.5665, 126.9780),
-                    initialZoom: 13.0,
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.hiking_tracker',
                   ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.example.hiking_tracker',
+                  if (route.isNotEmpty)
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: route,
+                          color: Colors.blueAccent,
+                          strokeWidth: 5.0,
+                        ),
+                      ],
                     ),
-                    if (route.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: route,
-                            color: Colors.red,
-                            strokeWidth: 4.0,
-                          ),
-                        ],
-                      ),
-                    MarkerLayer(markers: photoMarkers),
-                  ],
+                  MarkerLayer(markers: photoMarkers),
+                ],
+              ),
+              Positioned(
+                bottom: 32,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 8.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(24.0),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -4)),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _buildMiniMetric(context, Icons.timer, '시간', _formatDuration(widget.workout.durationSeconds)),
+                      _buildDivider(),
+                      _buildMiniMetric(context, Icons.route, '거리', '${(widget.workout.totalDistanceMeters / 1000).toStringAsFixed(2)} km'),
+                      _buildDivider(),
+                      _buildMiniMetric(context, Icons.speed, '평균 속도', '${(widget.workout.averageSpeedMps * 3.6).toStringAsFixed(1)} km/h'),
+                      _buildDivider(),
+                      _buildMiniMetric(context, Icons.landscape, '고도', '${widget.workout.maxAltitudeMeters.toStringAsFixed(0)} m'),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -135,13 +173,26 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
     );
   }
 
-  Widget _buildMetricColumn(String label, String value) {
-    return Column(
-      children: [
-        Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
+  Widget _buildDivider() {
+    return Container(
+      width: 1,
+      height: 40,
+      color: Colors.grey.shade300,
+    );
+  }
+
+  Widget _buildMiniMetric(BuildContext context, IconData icon, String label, String value) {
+    return Expanded(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: Theme.of(context).primaryColor, size: 28),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87), textAlign: TextAlign.center),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+        ],
+      ),
     );
   }
 }
