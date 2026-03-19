@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'database/database_helper.dart';
-import 'database/database_helper.dart';
 import 'ui/main_page.dart';
+import 'ui/splash_screen.dart';
 import 'providers/tracker_provider.dart';
 
 void main() async {
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         ),
-        home: MainPage(),
+        home: const SplashScreen(),
       ),
     );
   }

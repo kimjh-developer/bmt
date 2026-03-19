@@ -24,6 +24,7 @@ class TrackerProvider extends ChangeNotifier {
   Set<int> reachedMountainIds = {}; // to prevent multiple notifications for the same peak in one workout
 
   StreamSubscription<Position>? _positionStreamSubscription;
+  StreamSubscription<Position>? _passiveLocationSubscription;
   Timer? _timer;
   
   // Local Notifications
@@ -32,6 +33,7 @@ class TrackerProvider extends ChangeNotifier {
   TrackerProvider() {
     _initNotifications();
     _loadMountains();
+    _startPassiveLocationTracking();
   }
 
   Future<void> _initNotifications() async {
@@ -53,6 +55,41 @@ class TrackerProvider extends ChangeNotifier {
   Future<void> _loadMountains() async {
     allMountains = await DatabaseHelper.instance.getAllMountains();
     notifyListeners();
+  }
+
+  /// Always-on light location stream for showing user's position on map.
+  Future<void> _startPassiveLocationTracking() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+
+      // Get immediate first position
+      final Position initial = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      );
+      currentPosition = initial;
+      notifyListeners();
+
+      // Then keep updating
+      _passiveLocationSubscription = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen((position) {
+        if (!isTracking) {
+          currentPosition = position;
+          notifyListeners();
+        }
+      });
+    } catch (_) {}
   }
 
   Future<void> startWorkout() async {

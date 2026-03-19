@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../providers/tracker_provider.dart';
@@ -14,6 +15,7 @@ class TrackerPage extends StatefulWidget {
 class _TrackerPageState extends State<TrackerPage> {
   final MapController _mapController = MapController();
   final ImagePicker _picker = ImagePicker();
+  bool _centeredOnUser = false; // track if we moved map to user initially
 
   String _formatDuration(int seconds) {
     final hours = seconds ~/ 3600;
@@ -27,20 +29,42 @@ class _TrackerPageState extends State<TrackerPage> {
     final tracker = Provider.of<TrackerProvider>(context);
     final isTracking = tracker.isTracking;
 
+    // Move map to user's location on first position fix
+    if (!_centeredOnUser && tracker.currentPosition != null) {
+      _centeredOnUser = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(
+          LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude),
+          14.0,
+        );
+      });
+    }
+
+    // During tracking, keep map centered on user as they move
+    if (isTracking && tracker.currentPosition != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(
+          LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude),
+          14.0,
+        );
+      });
+    }
+
     List<LatLng> route = tracker.locationPoints
         .map((p) => LatLng(p.latitude, p.longitude))
         .toList();
 
+    // Build mountain markers for clustering
     List<Marker> mountainMarkers = tracker.allMountains.map((m) {
       bool reached = tracker.reachedMountainIds.contains(m.id);
       return Marker(
-        width: 40.0,
-        height: 40.0,
+        width: 32.0,
+        height: 32.0,
         point: LatLng(m.latitude, m.longitude),
         child: Icon(
           Icons.landscape,
-          color: reached ? Colors.green : Colors.red,
-          size: 30.0,
+          color: reached ? Colors.green.shade700 : Colors.red.shade600,
+          size: 22.0,
         ),
       );
     }).toList();
@@ -52,7 +76,9 @@ class _TrackerPageState extends State<TrackerPage> {
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: route.isNotEmpty ? route.last : const LatLng(37.5665, 126.9780), // Seoul Default
+              initialCenter: tracker.currentPosition != null
+                  ? LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude)
+                  : const LatLng(37.5665, 126.9780),
               initialZoom: 14.0,
             ),
             children: [
@@ -71,7 +97,38 @@ class _TrackerPageState extends State<TrackerPage> {
                   ],
                 ),
               if (mountainMarkers.isNotEmpty)
-                MarkerLayer(markers: mountainMarkers),
+                MarkerClusterLayerWidget(
+                  options: MarkerClusterLayerOptions(
+                    maxClusterRadius: 80,
+                    size: const Size(44, 44),
+                    markers: mountainMarkers,
+                    builder: (context, markers) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade700.withOpacity(0.85),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.green.shade900.withOpacity(0.4),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            markers.length > 999 ? '999+' : '${markers.length}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
               if (tracker.currentPosition != null)
                 MarkerLayer(
                   markers: [
