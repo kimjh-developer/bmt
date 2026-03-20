@@ -1,56 +1,99 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
 import '../models/models.dart';
 import '../database/database_helper.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'dart:async';
-import '../models/models.dart';
-import '../database/database_helper.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-class TrackerProvider extends ChangeNotifier {
+/// 트래킹 모드
+enum TrackingMode {
+  realtime,    // 3초마다 GPS 갱신 — 실시간 보기
+  batterySave, // distanceFilter 기반 스트림 — 배터리 절약
+}
+
+class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool isTracking = false;
   DateTime? startTime;
   int durationSeconds = 0;
   double totalDistanceMeters = 0.0;
   double averageSpeedMps = 0.0;
   double maxAltitudeMeters = 0.0;
-  
+
   Position? currentPosition;
   List<LocationPoint> locationPoints = [];
   List<Photo> currentWorkoutPhotos = [];
   List<Mountain> allMountains = [];
-  Set<int> reachedMountainIds = {}; // to prevent multiple notifications for the same peak in one workout
+  Set<int> reachedMountainIds = {};
+
+  /// 사용자가 선택한 트래킹 모드 (기본값: 배터리 세이브)
+  TrackingMode trackingMode = TrackingMode.batterySave;
 
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<Position>? _passiveLocationSubscription;
   Timer? _timer;
-  Timer? _peakCheckTimer;         // throttle peak detection
-  Position? _lastPeakCheckPos;   // position at last peak check
-  
+  Timer? _peakCheckTimer;
+  Position? _lastPeakCheckPos;
+
+  // Background Idle Check
+  DateTime? lastMeaningfulMovementTime;
+  Timer? _idleCheckTimer;
+  bool _isIdlePromptActive = false;
+
   // Local Notifications
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
 
   TrackerProvider() {
+    WidgetsBinding.instance.addObserver(this);
     _initNotifications();
     _loadMountains();
     _startPassiveLocationTracking();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _idleCheckTimer?.cancel();
+    flutterLocalNotificationsPlugin.cancelAll();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_isIdlePromptActive) {
+        _cancelIdlePrompt();
+      }
+      // 백그라운드 수면에서 깼을 때 바로 아이들 타임 점검 후 자동종료 평가
+      _checkIdleStatus();
+    }
+  }
+
+  /// 외부(UI)에서 모드 변경
+  void setTrackingMode(TrackingMode mode) {
+    if (isTracking) return; // 운동 중에는 변경 불가
+    trackingMode = mode;
+    notifyListeners();
   }
 
   Future<void> _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const DarwinInitializationSettings initializationSettingsDarwin =
-        DarwinInitializationSettings();
-    const InitializationSettings initializationSettings = InitializationSettings(
-        android: initializationSettingsAndroid,
-        iOS: initializationSettingsDarwin);
+        DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+            android: initializationSettingsAndroid,
+            iOS: initializationSettingsDarwin);
     await flutterLocalNotificationsPlugin.initialize(
       initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) async {
-        // Handle notification tapped logic here
-      },
+      onDidReceiveNotificationResponse:
+          (NotificationResponse response) async {},
     );
   }
 
@@ -59,7 +102,7 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Always-on light location stream for showing user's position on map.
+  /// 항상 켜져 있는 경량 위치 스트림 (지도 표시용)
   Future<void> _startPassiveLocationTracking() async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -72,18 +115,17 @@ class TrackerProvider extends ChangeNotifier {
       }
       if (permission == LocationPermission.deniedForever) return;
 
-      // Get immediate first position with a medium accuracy to save battery
       final Position initial = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+        locationSettings:
+            const LocationSettings(accuracy: LocationAccuracy.medium),
       );
       currentPosition = initial;
       notifyListeners();
 
-      // Passive stream: medium accuracy, 20 m filter — sufficient for map display
       _passiveLocationSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
-          distanceFilter: 20,       // only update when moved 20 m
+          distanceFilter: 20,
         ),
       ).listen((position) {
         if (!isTracking) {
@@ -95,24 +137,22 @@ class TrackerProvider extends ChangeNotifier {
   }
 
   Future<void> startWorkout() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+    // 백그라운드 퍼미션을 요청하는 활성 트래커와의 설정 충돌을 막기 위해 패시브 트래커 해제
+    await _passiveLocationSubscription?.cancel();
+    _passiveLocationSubscription = null;
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return Future.error('Location services are disabled.');
-    }
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return Future.error('Location services are disabled.');
 
-    permission = await Geolocator.checkPermission();
+    LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
         return Future.error('Location permissions are denied');
       }
     }
-
     if (permission == LocationPermission.deniedForever) {
-      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
+      return Future.error('Location permissions are permanently denied.');
     }
 
     isTracking = true;
@@ -124,39 +164,67 @@ class TrackerProvider extends ChangeNotifier {
     locationPoints.clear();
     reachedMountainIds.clear();
 
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      durationSeconds++;
-      notifyListeners();
+    // 1초 타이머 (공통) - 백그라운드 일시정지 보완을 위한 절대시간 차이 사용
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (startTime != null) {
+        durationSeconds = DateTime.now().difference(startTime!).inSeconds;
+        notifyListeners();
+      }
     });
 
-    // Workout stream: bestForNavigation with 10 m filter
-    // (5m → 10m halves the number of GPS wake-ups; adequate for hiking pace)
-    final locationSettings = const LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 10,
-    );
-
-    // Throttled peak detection: run at most once every 30 seconds
+    // 봉우리 감지 타이머 (공통)
     _peakCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (currentPosition != null) {
         _checkPeakArrivalThrottled(currentPosition!);
       }
     });
 
-    _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (Position? position) {
-        if (position != null) {
-          _updatePosition(position);
-        }
-      },
-    );
+    lastMeaningfulMovementTime = DateTime.now();
+    _isIdlePromptActive = false;
+
+    LocationSettings locationSettings;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      locationSettings = AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: trackingMode == TrackingMode.realtime ? 0 : 10,
+        intervalDuration: trackingMode == TrackingMode.realtime ? const Duration(seconds: 3) : null,
+        forceLocationManager: true,
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: "운동 기록 중입니다. 앱이 백그라운드에서도 동작합니다.",
+          notificationTitle: "Hiking Tracker",
+          enableWakeLock: true,
+        ),
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS || defaultTargetPlatform == TargetPlatform.macOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        activityType: ActivityType.fitness,
+        distanceFilter: 0, 
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
+      );
+    } else {
+      locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: trackingMode == TrackingMode.realtime ? 0 : 10,
+      );
+    }
+
+    _positionStreamSubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((Position? position) {
+      if (position != null) _updatePosition(position);
+    });
+
+    _idleCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      _checkIdleStatus();
+    });
 
     notifyListeners();
   }
 
   void _updatePosition(Position position) {
-    currentPosition = position;
-    
     if (locationPoints.isNotEmpty) {
       final lastPoint = locationPoints.last;
       final distance = Geolocator.distanceBetween(
@@ -165,8 +233,22 @@ class TrackerProvider extends ChangeNotifier {
         position.latitude,
         position.longitude,
       );
+      if (distance < 5.0) {
+        // 미동(5m 미만)일 경우 타이머 리셋 방지 및 데이터 저장 안 함
+        // 백그라운드에서 OS가 앱을 깨웠거나 Timer대신 동작하게 아이들 상태만 체크
+        _checkIdleStatus();
+        return; 
+      }
+      
+      lastMeaningfulMovementTime = DateTime.now();
+      if (_isIdlePromptActive) _cancelIdlePrompt();
       totalDistanceMeters += distance;
+    } else {
+      lastMeaningfulMovementTime = DateTime.now();
+      if (_isIdlePromptActive) _cancelIdlePrompt();
     }
+
+    currentPosition = position;
 
     if (position.altitude > maxAltitudeMeters) {
       maxAltitudeMeters = position.altitude;
@@ -176,23 +258,19 @@ class TrackerProvider extends ChangeNotifier {
       averageSpeedMps = totalDistanceMeters / durationSeconds;
     }
 
-    final newPoint = LocationPoint(
+    locationPoints.add(LocationPoint(
       workoutId: 0,
       latitude: position.latitude,
       longitude: position.longitude,
       altitude: position.altitude,
       timestamp: DateTime.now().toIso8601String(),
-    );
-    locationPoints.add(newPoint);
+    ));
 
-    // Peak detection is now handled by the throttled timer — skip here
     notifyListeners();
   }
 
-  /// Throttled peak check: filter to mountains within ~5 km first,
-  /// then do exact distance calculation only on nearby ones.
   void _checkPeakArrivalThrottled(Position position) async {
-    const double coarseDeg = 0.045; // ~5 km in degrees
+    const double coarseDeg = 0.045;
     final nearMountains = allMountains.where((m) {
       return (m.latitude - position.latitude).abs() < coarseDeg &&
           (m.longitude - position.longitude).abs() < coarseDeg &&
@@ -213,52 +291,37 @@ class TrackerProvider extends ChangeNotifier {
     }
   }
 
-  void _checkPeakArrival(Position position) async {
-    for (var mountain in allMountains) {
-      if (reachedMountainIds.contains(mountain.id)) continue;
-
-      final distance = Geolocator.distanceBetween(
-        position.latitude,
-        position.longitude,
-        mountain.latitude,
-        mountain.longitude,
-      );
-
-      if (distance <= 50.0) { // 50 meters
-        reachedMountainIds.add(mountain.id!);
-        _triggerPeakNotification(mountain);
-      }
-    }
-  }
-
   Future<void> _triggerPeakNotification(Mountain mountain) async {
     const AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
-            'peak_channel', 'Peak Achievements',
-            channelDescription: 'Notifications for reaching mountain peaks',
-            importance: Importance.max,
-            priority: Priority.high,
-            ticker: 'ticker');
+      'peak_channel',
+      'Peak Achievements',
+      channelDescription: 'Notifications for reaching mountain peaks',
+      importance: Importance.max,
+      priority: Priority.high,
+      ticker: 'ticker',
+    );
     const NotificationDetails platformChannelSpecifics =
         NotificationDetails(android: androidPlatformChannelSpecifics);
-    
+
     await flutterLocalNotificationsPlugin.show(
-        0,
-        'Congratulations!',
-        'You have reached the peak of ${mountain.name}!',
-        platformChannelSpecifics,
-        payload: mountain.id.toString(),
+      0,
+      'Congratulations!',
+      'You have reached the peak of ${mountain.name}!',
+      platformChannelSpecifics,
+      payload: mountain.id.toString(),
     );
   }
 
-  void addPhotoToCurrentWorkout(String path, double lat, double lng, String? comment) {
+  void addPhotoToCurrentWorkout(
+      String path, double lat, double lng, String? comment) {
     currentWorkoutPhotos.add(Photo(
       workoutId: 0,
       imagePath: path,
       latitude: lat,
       longitude: lng,
       comment: comment,
-      timestamp: DateTime.now().toIso8601String()
+      timestamp: DateTime.now().toIso8601String(),
     ));
     notifyListeners();
   }
@@ -268,11 +331,17 @@ class TrackerProvider extends ChangeNotifier {
     _timer?.cancel();
     _peakCheckTimer?.cancel();
     _positionStreamSubscription?.cancel();
-    
+    _idleCheckTimer?.cancel();
+    if (_isIdlePromptActive) _cancelIdlePrompt();
+
+    final actualEndTime = DateTime.now();
+    final int actualDuration =
+        startTime != null ? actualEndTime.difference(startTime!).inSeconds : durationSeconds;
+
     final workout = Workout(
       startTime: startTime!.toIso8601String(),
-      endTime: DateTime.now().toIso8601String(),
-      durationSeconds: durationSeconds,
+      endTime: actualEndTime.toIso8601String(),
+      durationSeconds: actualDuration,
       totalDistanceMeters: totalDistanceMeters,
       averageSpeedMps: averageSpeedMps,
       maxAltitudeMeters: maxAltitudeMeters,
@@ -281,41 +350,102 @@ class TrackerProvider extends ChangeNotifier {
     int workoutId = await DatabaseHelper.instance.createWorkout(workout);
 
     for (var point in locationPoints) {
-      await DatabaseHelper.instance.createLocationPoint(
-        LocationPoint(
-          workoutId: workoutId,
-          latitude: point.latitude,
-          longitude: point.longitude,
-          altitude: point.altitude,
-          timestamp: point.timestamp,
-        )
-      );
+      await DatabaseHelper.instance.createLocationPoint(LocationPoint(
+        workoutId: workoutId,
+        latitude: point.latitude,
+        longitude: point.longitude,
+        altitude: point.altitude,
+        timestamp: point.timestamp,
+      ));
     }
 
     for (var photo in currentWorkoutPhotos) {
-      await DatabaseHelper.instance.createPhoto(
-        Photo(
-          workoutId: workoutId,
-          imagePath: photo.imagePath,
-          latitude: photo.latitude,
-          longitude: photo.longitude,
-          comment: photo.comment,
-          timestamp: photo.timestamp,
-        )
-      );
+      await DatabaseHelper.instance.createPhoto(Photo(
+        workoutId: workoutId,
+        imagePath: photo.imagePath,
+        latitude: photo.latitude,
+        longitude: photo.longitude,
+        comment: photo.comment,
+        timestamp: photo.timestamp,
+      ));
     }
 
     for (var mId in reachedMountainIds) {
-      await DatabaseHelper.instance.createPeakSuccess(
-        PeakSuccess(
-          mountainId: mId,
-          workoutId: workoutId,
-          timestamp: DateTime.now().toIso8601String(),
-        )
-      );
+      await DatabaseHelper.instance.createPeakSuccess(PeakSuccess(
+        mountainId: mId,
+        workoutId: workoutId,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
     }
 
+    // UI에서 기록 중인 것처럼 보이지 않도록 내부 측정 변수들 완전 초기화
+    startTime = null;
+    durationSeconds = 0;
+    totalDistanceMeters = 0.0;
+    averageSpeedMps = 0.0;
+    maxAltitudeMeters = 0.0;
+    locationPoints.clear();
+    currentWorkoutPhotos.clear();
+    reachedMountainIds.clear();
+
     notifyListeners();
+    // 운동 종료 시 지도 시야 확보를 위해 패시브 트래커 재가동
+    _startPassiveLocationTracking();
     return workout;
+  }
+
+  void _checkIdleStatus() async {
+    if (!isTracking || lastMeaningfulMovementTime == null) return;
+
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.paused &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.hidden) {
+      return; 
+    }
+
+    final idleDuration = DateTime.now().difference(lastMeaningfulMovementTime!);
+
+    if (!_isIdlePromptActive) {
+      if (idleDuration.inSeconds >= 60) {
+        _isIdlePromptActive = true;
+        _sendIdleNotification();
+      }
+    } else {
+      if (idleDuration.inSeconds >= 360) {
+        await stopWorkout();
+        _cancelIdlePrompt();
+
+        const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+            'idle_tracker_channel', 'Hiking Tracker Idle',
+            importance: Importance.max, priority: Priority.high);
+        const NotificationDetails details = NotificationDetails(
+            android: androidDetails, iOS: DarwinNotificationDetails());
+        flutterLocalNotificationsPlugin.show(
+          998,
+          '자동 기록 종료',
+          '장시간 움직임이 없어 운동 기록이 자동으로 저장되었습니다.',
+          details,
+        );
+      }
+    }
+  }
+
+  Future<void> _sendIdleNotification() async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+            'idle_tracker_channel', 'Hiking Tracker Idle',
+            importance: Importance.max, priority: Priority.high);
+    const NotificationDetails details = NotificationDetails(
+            android: androidDetails, iOS: DarwinNotificationDetails());
+
+    await flutterLocalNotificationsPlugin.show(
+      999,
+      '운동이 종료되었나요?',
+      '응답이 없으면 5분 후 자동으로 기록이 저장됩니다.',
+      details,
+    );
+  }
+
+  void _cancelIdlePrompt() {
+    _isIdlePromptActive = false;
+    flutterLocalNotificationsPlugin.cancel(999);
   }
 }
