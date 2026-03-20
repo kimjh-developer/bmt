@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'database/database_helper.dart';
 import 'ui/main_page.dart';
 import 'ui/splash_screen.dart';
@@ -16,14 +17,18 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final base = ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+      useMaterial3: true,
+    );
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => TrackerProvider()),
       ],
       child: MaterialApp(
-        title: '등산 트래커',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        title: 'BMT',
+        theme: base.copyWith(
+          textTheme: GoogleFonts.notoSansKrTextTheme(base.textTheme),
         ),
         home: const SplashScreen(),
       ),

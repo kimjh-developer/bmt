@@ -29,27 +29,6 @@ class _TrackerPageState extends State<TrackerPage> {
     final tracker = Provider.of<TrackerProvider>(context);
     final isTracking = tracker.isTracking;
 
-    // Move map to user's location on first position fix
-    if (!_centeredOnUser && tracker.currentPosition != null) {
-      _centeredOnUser = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(
-          LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude),
-          14.0,
-        );
-      });
-    }
-
-    // During tracking, keep map centered on user as they move
-    if (isTracking && tracker.currentPosition != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _mapController.move(
-          LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude),
-          14.0,
-        );
-      });
-    }
-
     List<LatLng> route = tracker.locationPoints
         .map((p) => LatLng(p.latitude, p.longitude))
         .toList();
@@ -80,6 +59,7 @@ class _TrackerPageState extends State<TrackerPage> {
                   ? LatLng(tracker.currentPosition!.latitude, tracker.currentPosition!.longitude)
                   : const LatLng(37.5665, 126.9780),
               initialZoom: 14.0,
+              maxZoom: 22.0,
             ),
             children: [
               TileLayer(
@@ -155,6 +135,27 @@ class _TrackerPageState extends State<TrackerPage> {
             ],
           ),
           
+          // My-location FAB
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            right: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'locateMe',
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.green.shade700,
+              elevation: 4,
+              onPressed: () {
+                if (tracker.currentPosition != null) {
+                  _mapController.move(
+                    LatLng(tracker.currentPosition!.latitude,
+                        tracker.currentPosition!.longitude),
+                    _mapController.camera.zoom,
+                  );
+                }
+              },
+              child: const Icon(Icons.my_location),
+            ),
+          ),
           // Bottom Floating Panel containing metrics and action buttons
           Positioned(
             bottom: 32,

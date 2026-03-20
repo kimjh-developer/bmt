@@ -26,6 +26,8 @@ class TrackerProvider extends ChangeNotifier {
   StreamSubscription<Position>? _positionStreamSubscription;
   StreamSubscription<Position>? _passiveLocationSubscription;
   Timer? _timer;
+  Timer? _peakCheckTimer;         // throttle peak detection
+  Position? _lastPeakCheckPos;   // position at last peak check
   
   // Local Notifications
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -70,18 +72,18 @@ class TrackerProvider extends ChangeNotifier {
       }
       if (permission == LocationPermission.deniedForever) return;
 
-      // Get immediate first position
+      // Get immediate first position with a medium accuracy to save battery
       final Position initial = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
       );
       currentPosition = initial;
       notifyListeners();
 
-      // Then keep updating
+      // Passive stream: medium accuracy, 20 m filter — sufficient for map display
       _passiveLocationSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
+          accuracy: LocationAccuracy.medium,
+          distanceFilter: 20,       // only update when moved 20 m
         ),
       ).listen((position) {
         if (!isTracking) {
@@ -127,10 +129,19 @@ class TrackerProvider extends ChangeNotifier {
       notifyListeners();
     });
 
+    // Workout stream: bestForNavigation with 10 m filter
+    // (5m → 10m halves the number of GPS wake-ups; adequate for hiking pace)
     final locationSettings = const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // update every 5 meters
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 10,
     );
+
+    // Throttled peak detection: run at most once every 30 seconds
+    _peakCheckTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (currentPosition != null) {
+        _checkPeakArrivalThrottled(currentPosition!);
+      }
+    });
 
     _positionStreamSubscription = Geolocator.getPositionStream(locationSettings: locationSettings).listen(
       (Position? position) {
@@ -166,7 +177,7 @@ class TrackerProvider extends ChangeNotifier {
     }
 
     final newPoint = LocationPoint(
-      workoutId: 0, // temporary id placeholder until workout is saved
+      workoutId: 0,
       latitude: position.latitude,
       longitude: position.longitude,
       altitude: position.altitude,
@@ -174,9 +185,32 @@ class TrackerProvider extends ChangeNotifier {
     );
     locationPoints.add(newPoint);
 
-    _checkPeakArrival(position);
-
+    // Peak detection is now handled by the throttled timer — skip here
     notifyListeners();
+  }
+
+  /// Throttled peak check: filter to mountains within ~5 km first,
+  /// then do exact distance calculation only on nearby ones.
+  void _checkPeakArrivalThrottled(Position position) async {
+    const double coarseDeg = 0.045; // ~5 km in degrees
+    final nearMountains = allMountains.where((m) {
+      return (m.latitude - position.latitude).abs() < coarseDeg &&
+          (m.longitude - position.longitude).abs() < coarseDeg &&
+          !reachedMountainIds.contains(m.id);
+    }).toList();
+
+    for (var mountain in nearMountains) {
+      final distance = Geolocator.distanceBetween(
+        position.latitude,
+        position.longitude,
+        mountain.latitude,
+        mountain.longitude,
+      );
+      if (distance <= 50.0) {
+        reachedMountainIds.add(mountain.id!);
+        _triggerPeakNotification(mountain);
+      }
+    }
   }
 
   void _checkPeakArrival(Position position) async {
@@ -232,6 +266,7 @@ class TrackerProvider extends ChangeNotifier {
   Future<Workout> stopWorkout() async {
     isTracking = false;
     _timer?.cancel();
+    _peakCheckTimer?.cancel();
     _positionStreamSubscription?.cancel();
     
     final workout = Workout(
