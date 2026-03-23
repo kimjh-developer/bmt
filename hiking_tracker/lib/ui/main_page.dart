@@ -4,6 +4,8 @@ import '../ui/records/records_page.dart';
 import '../ui/mypage/mypage.dart';
 
 class MainPage extends StatefulWidget {
+  const MainPage({super.key});
+
   @override
   _MainPageState createState() => _MainPageState();
 }

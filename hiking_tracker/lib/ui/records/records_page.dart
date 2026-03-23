@@ -5,6 +5,8 @@ import 'record_detail_page.dart';
 import 'package:intl/intl.dart';
 
 class RecordsPage extends StatefulWidget {
+  const RecordsPage({super.key});
+
   @override
   _RecordsPageState createState() => _RecordsPageState();
 }

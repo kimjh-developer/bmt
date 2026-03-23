@@ -29,8 +29,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
             transitionDuration: const Duration(milliseconds: 600),
-            pageBuilder: (_, __, ___) => MainPage(),
-            transitionsBuilder: (_, animation, __, child) {
+            pageBuilder: (_, _, _) => MainPage(),
+            transitionsBuilder: (_, animation, _, child) {
               return FadeTransition(opacity: animation, child: child);
             },
           ),

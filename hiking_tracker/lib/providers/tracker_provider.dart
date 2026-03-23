@@ -187,7 +187,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: trackingMode == TrackingMode.realtime ? 0 : 10,
-        intervalDuration: trackingMode == TrackingMode.realtime ? const Duration(seconds: 3) : null,
+        intervalDuration: trackingMode == TrackingMode.realtime ? const Duration(seconds: 3) : const Duration(seconds: 10),
         forceLocationManager: true,
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationText: "운동 기록 중입니다. 앱이 백그라운드에서도 동작합니다.",
@@ -199,7 +199,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       locationSettings = AppleSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         activityType: ActivityType.fitness,
-        distanceFilter: 0, 
+        distanceFilter: trackingMode == TrackingMode.realtime ? 5 : 10,
         pauseLocationUpdatesAutomatically: false,
         showBackgroundLocationIndicator: true,
         allowBackgroundLocationUpdates: true,

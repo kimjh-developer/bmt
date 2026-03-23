@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'database/database_helper.dart';
-import 'ui/main_page.dart';
 import 'ui/splash_screen.dart';
 import 'providers/tracker_provider.dart';
 
