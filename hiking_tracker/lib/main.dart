@@ -17,7 +17,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final base = ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF0A0E14),
+      colorScheme: const ColorScheme.dark(
+        primary: Color(0xFF6DDDFF),
+        secondary: Color(0xFFD7E2FF),
+        surface: Color(0xFF0A0E14),
+      ),
       useMaterial3: true,
     );
     return MultiProvider(
@@ -27,7 +33,10 @@ class MyApp extends StatelessWidget {
       child: MaterialApp(
         title: 'BMT',
         theme: base.copyWith(
-          textTheme: GoogleFonts.notoSansKrTextTheme(base.textTheme),
+          textTheme: GoogleFonts.notoSansKrTextTheme(base.textTheme).apply(
+            bodyColor: const Color(0xFFF1F3FC),
+            displayColor: const Color(0xFFF1F3FC),
+          ),
         ),
         home: const SplashScreen(),
       ),

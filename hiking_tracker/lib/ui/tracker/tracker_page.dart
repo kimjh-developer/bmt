@@ -5,10 +5,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../providers/tracker_provider.dart';
 import '../widgets/unified_map_view.dart';
 import '../../models/models.dart';
 import '../../utils/marker_generator.dart';
+import 'workout_summary_page.dart';
 
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
@@ -29,19 +31,14 @@ class _TrackerPageState extends State<TrackerPage> {
   @override
   void initState() {
     super.initState();
-    _initCustomMarkers();
-  }
-
-  Future<void> _initCustomMarkers() async {
-    _markerCache['start'] = await MarkerGenerator.createTextMarker('S', backgroundColor: Colors.green, size: 80);
-    _markerCache['end'] = await MarkerGenerator.createTextMarker('E', backgroundColor: Colors.red, size: 80);
-    if (mounted) setState(() {});
+    // We only need custom markers for clusters now.
+    // Start and End pins use native OS defaults.
   }
 
   Future<Uint8List> _getClusterIcon(int count) async {
     final key = 'cluster_$count';
     if (_markerCache.containsKey(key)) return _markerCache[key]!;
-    final icon = await MarkerGenerator.createTextMarker(count.toString(), backgroundColor: Colors.blue, size: 90);
+    final icon = await MarkerGenerator.createTextMarker(count.toString(), backgroundColor: const Color(0xFF6DDDFF), size: 90);
     _markerCache[key] = icon;
     if (mounted) setState(() {});
     return icon;
@@ -54,11 +51,10 @@ class _TrackerPageState extends State<TrackerPage> {
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
-  // 줌 레벨에 따른 클러스터링 거리 동적 설정
   double _getClusterThreshold(double zoom) {
-    if (zoom >= 14) return 0.0;     // 안 묶음
-    if (zoom >= 12) return 0.02;    // 약간 묶음
-    if (zoom >= 10) return 0.05;    // 많이 묶음
+    if (zoom >= 14) return 0.0;     
+    if (zoom >= 12) return 0.02;    
+    if (zoom >= 10) return 0.05;    
     if (zoom >= 8) return 0.1;
     return 0.5;
   }
@@ -77,7 +73,6 @@ class _TrackerPageState extends State<TrackerPage> {
 
     double threshold = _getClusterThreshold(_currentZoom);
 
-    // 단순 거리 기반 클러스터링
     List<List<Mountain>> clusters = [];
     for (var m in visibleMountains) {
       bool added = false;
@@ -108,16 +103,14 @@ class _TrackerPageState extends State<TrackerPage> {
             longitude: m.longitude,
             title: m.name,
             snippet: reached ? '기록 완료' : '미정복',
-            color: reached ? Colors.green : Colors.red,
+            color: reached ? const Color(0xFFC3FFCD) : const Color(0xFFFF716C),
           ));
         }
       } else {
-        // 그룹 표시
         int count = cluster.length;
         double avgLat = cluster.map((m) => m.latitude).reduce((a, b) => a + b) / count;
         double avgLng = cluster.map((m) => m.longitude).reduce((a, b) => a + b) / count;
         
-        // 아이콘이 없으면 미래에 로딩하도록 _getClusterIcon 호출만 해둔다.
         final key = 'cluster_$count';
         if (!_markerCache.containsKey(key)) {
           _getClusterIcon(count); 
@@ -128,7 +121,7 @@ class _TrackerPageState extends State<TrackerPage> {
           latitude: avgLat,
           longitude: avgLng,
           iconBytes: _markerCache[key], 
-          color: Colors.blue,
+          color: const Color(0xFF6DDDFF),
           title: '$count개의 산',
           onTap: () {
             _unifiedController?.moveCamera(UnifiedLatLng(avgLat, avgLng), _currentZoom + 2);
@@ -166,7 +159,6 @@ class _TrackerPageState extends State<TrackerPage> {
 
     final mountainMarkers = _buildFilteredMountainMarkers(tracker);
 
-    // 최초 위치 수신 시 지도 정중앙 이동
     if (!_hasInitiallyCentered && tracker.currentPosition != null && _unifiedController != null) {
       _hasInitiallyCentered = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -178,6 +170,7 @@ class _TrackerPageState extends State<TrackerPage> {
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E14),
       body: Stack(
         children: [
           // ── 배경 지도 ─────────────────────────────────────────────────
@@ -204,7 +197,7 @@ class _TrackerPageState extends State<TrackerPage> {
                 UnifiedPolyline(
                   id: 'route',
                   points: routePoints,
-                  color: Colors.blueAccent,
+                  color: const Color(0xFF6DDDFF), // Primary Accent
                   width: 5.0,
                 ),
             },
@@ -216,8 +209,8 @@ class _TrackerPageState extends State<TrackerPage> {
                   latitude: startPos.latitude,
                   longitude: startPos.longitude,
                   title: '출발',
-                  iconBytes: _markerCache['start'],
-                  color: Colors.green,
+                  // native OS marker behavior as requested
+                  color: Colors.green, // Hue on Android, default red on iOS
                 ),
               if (endPos != null)
                 UnifiedMarker(
@@ -225,7 +218,7 @@ class _TrackerPageState extends State<TrackerPage> {
                   latitude: endPos.latitude,
                   longitude: endPos.longitude,
                   title: '도착',
-                  iconBytes: _markerCache['end'],
+                  // native OS marker behavior as requested
                   color: Colors.red,
                 ),
             },
@@ -235,45 +228,50 @@ class _TrackerPageState extends State<TrackerPage> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 16,
             right: 16,
-            child: FloatingActionButton.small(
-              heroTag: 'locateMe',
-              onPressed: () {
-                if (tracker.currentPosition != null && _unifiedController != null) {
-                  _unifiedController!.moveCamera(
-                    UnifiedLatLng(tracker.currentPosition!.latitude,
-                        tracker.currentPosition!.longitude),
-                    15.0,
-                  );
-                }
-              },
-              backgroundColor: Colors.white,
-              child: const Icon(Icons.my_location, color: Colors.black87),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 24,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: FloatingActionButton.small(
+                heroTag: 'locateMe',
+                onPressed: () {
+                  if (tracker.currentPosition != null && _unifiedController != null) {
+                    _unifiedController!.moveCamera(
+                      UnifiedLatLng(tracker.currentPosition!.latitude,
+                          tracker.currentPosition!.longitude),
+                      15.0,
+                    );
+                  }
+                },
+                backgroundColor: const Color(0xFF1B2028).withOpacity(0.8),
+                elevation: 0,
+                child: const Icon(Icons.my_location, color: Color(0xFF6DDDFF)),
+              ),
             ),
           ),
 
-          // ── 상단 정보 패널 (운동 중일 때만 세련되게 표시) ───────────────────
+          // ── 상단 정보 패널 (Glassmorphism Tactical UI) ───────────────────
           if (isTracking)
             Positioned(
               top: MediaQuery.of(context).padding.top + 16,
               left: 16,
-              right: 80, // FAB보다 왼쪽에 위치
+              right: 80, 
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
+                      color: const Color(0xFF1B2028).withOpacity(0.65), 
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withOpacity(0.2)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -282,17 +280,15 @@ class _TrackerPageState extends State<TrackerPage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _buildStatItem('시간', _formatDuration(tracker.durationSeconds), Icons.timer),
-                            _buildStatItem('거리', '${(tracker.totalDistanceMeters / 1000).toStringAsFixed(2)} km', Icons.route),
+                            _buildStatItem('거리', '${(tracker.totalDistanceMeters / 1000).toStringAsFixed(2)}', Icons.route, 'km'),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        const Divider(height: 1, color: Colors.black12),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            _buildStatItem('평균속도', '${(tracker.averageSpeedMps * 3.6).toStringAsFixed(1)} km/h', Icons.speed),
-                            _buildStatItem('고도', '${tracker.currentPosition?.altitude.toStringAsFixed(0) ?? 0} m', Icons.terrain),
+                            _buildStatItem('평균속도', '${(tracker.averageSpeedMps * 3.6).toStringAsFixed(1)}', Icons.speed, 'km/h'),
+                            _buildStatItem('고도', '${tracker.currentPosition?.altitude.toStringAsFixed(0) ?? 0}', Icons.terrain, 'm'),
                           ],
                         ),
                       ],
@@ -302,13 +298,14 @@ class _TrackerPageState extends State<TrackerPage> {
               ),
             ),
 
-          // ── 하단 컨트롤 패널 ────────────────────────────────────────────
+          // ── 하단 컨트롤 패널 (Tactical Buttons) ────────────────────────────
           Positioned(
-            bottom: 30,
+            bottom: 40,
             left: 20,
             right: 20,
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (tracker.currentWorkoutPhotos.isNotEmpty)
                   SizedBox(
@@ -321,11 +318,8 @@ class _TrackerPageState extends State<TrackerPage> {
                           margin: const EdgeInsets.only(right: 8),
                           width: 80,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: [
-                              BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))
-                            ],
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF44484F).withOpacity(0.3), width: 1),
                             image: DecorationImage(
                               image: AssetImage(tracker.currentWorkoutPhotos[index].imagePath),
                               fit: BoxFit.cover,
@@ -336,81 +330,119 @@ class _TrackerPageState extends State<TrackerPage> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                
-                // 배터리 모드 제어 (운동 중지 상태일 때만)
-                if (!isTracking)
+                if (!isTracking) ...[
+                  // 모드 선택 토글
                   Container(
-                    margin: const EdgeInsets.only(bottom: 16),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0,2))
-                      ]
+                      color: const Color(0xFF1B2028).withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF44484F).withOpacity(0.3)),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        _buildModeButton(tracker, TrackingMode.realtime, '실시간(3초)', Icons.gps_fixed),
-                        _buildModeButton(tracker, TrackingMode.batterySave, '절약(10초)', Icons.battery_saver),
+                        Expanded(child: _buildModeToggle('정밀 모드', TrackingMode.realtime, tracker)),
+                        Expanded(child: _buildModeToggle('배터리 절약', TrackingMode.batterySave, tracker)),
                       ],
                     ),
                   ),
-
+                  const SizedBox(height: 16),
+                ],
                 Row(
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isTracking ? Colors.black87 : Colors.blueAccent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(
+                     if (!isTracking)   //운동 시작 버튼 (Electric Blue)
+                      Expanded(
+                        child: Container(
+                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(24),
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF6DDDFF), Color(0xFF00C3EB)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(color: const Color(0xFF6DDDFF).withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 8)),
+                            ]
                           ),
-                          elevation: 6,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              foregroundColor: const Color(0xFF002C37), // on-primary-fixed
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                            ),
+                            onPressed: () {
+                              tracker.startWorkout();
+                            },
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.play_arrow_rounded, size: 28),
+                                const SizedBox(width: 8),
+                                Text('운동 시작', style: GoogleFonts.notoSansKr(fontSize: 18, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
                         ),
-                        onPressed: () {
-                          if (isTracking) {
-                            _stopWorkout();
-                          } else {
-                            tracker.startWorkout().then((_) {
-                              // 위치 권한 허용 후 실제 위치 수신 시 맵을 센터로 이동
-                              Future.delayed(const Duration(milliseconds: 500), () {
-                                if (tracker.currentPosition != null && _unifiedController != null) {
-                                  _unifiedController!.moveCamera(
-                                    UnifiedLatLng(tracker.currentPosition!.latitude,
-                                        tracker.currentPosition!.longitude),
-                                    16.0,
-                                  );
-                                }
-                              });
-                            });
-                          }
-                        },
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(isTracking ? Icons.stop_rounded : Icons.play_arrow_rounded, size: 28),
-                            const SizedBox(width: 8),
-                            Text(
-                              isTracking ? '운동 종료' : '등산 시작',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      )
+                    else // 운동 종료 연질 레드 버튼
+                       Expanded(
+                        child: Container(
+                           decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(24),
+                            color: const Color(0xFF1B2028).withOpacity(0.85),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: BackdropFilter(
+                              filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  foregroundColor: const Color(0xFFFF716C), // error token
+                                  padding: const EdgeInsets.symmetric(vertical: 20),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                                ),
+                                onPressed: () {
+                                  _stopWorkout();
+                                },
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.stop_rounded, size: 28),
+                                    const SizedBox(width: 8),
+                                    Text('운동 종료', style: GoogleFonts.notoSansKr(fontSize: 18, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    
+                    if (isTracking) ...[
+                      const SizedBox(width: 16),
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 24,
+                              offset: const Offset(0, 8),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                    if (isTracking) ...[
-                      const SizedBox(width: 16),
-                      FloatingActionButton(
-                        heroTag: 'takePhoto',
-                        onPressed: _takePhoto,
-                        backgroundColor: Colors.white,
-                        elevation: 6,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                        child: const Icon(Icons.camera_alt, color: Colors.blueAccent, size: 28),
+                        child: FloatingActionButton(
+                          heroTag: 'takePhoto',
+                          onPressed: _takePhoto,
+                          backgroundColor: const Color(0xFF1B2028).withOpacity(0.9),
+                          elevation: 0,
+                          child: const Icon(Icons.camera_alt_rounded, color: Color(0xFF6DDDFF), size: 26),
+                        ),
                       ),
                     ],
                   ],
@@ -423,46 +455,56 @@ class _TrackerPageState extends State<TrackerPage> {
     );
   }
 
-  Widget _buildModeButton(TrackerProvider tracker, TrackingMode mode, String label, IconData icon) {
-    bool isSelected = tracker.trackingMode == mode;
+  Widget _buildModeToggle(String title, TrackingMode mode, TrackerProvider tracker) {
+    final isSelected = tracker.trackingMode == mode;
     return GestureDetector(
       onTap: () => tracker.setTrackingMode(mode),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? const Color(0xFF6DDDFF).withOpacity(0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 18, color: isSelected ? Colors.blue : Colors.grey),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(
-              fontSize: 13,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected ? Colors.blue : Colors.grey
-            )),
-          ],
+        child: Center(
+          child: Text(
+            title,
+            style: GoogleFonts.notoSansKr(
+              fontSize: 14,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? const Color(0xFF6DDDFF) : const Color(0xFFA8ABB3),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon) {
-    return Expanded(
-      child: Row(
-        children: [
-          Icon(icon, size: 24, color: Colors.blueAccent.withOpacity(0.7)),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500)),
-              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87, letterSpacing: -0.5)),
-            ],
-          ),
-        ],
-      ),
+  Widget _buildStatItem(String label, String value, IconData icon, [String unit = '']) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Icon(icon, size: 20, color: const Color(0xFF6DDDFF)),
+        const SizedBox(width: 10),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: GoogleFonts.notoSansKr(fontSize: 12, color: const Color(0xFFA8ABB3))),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(value, style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC), letterSpacing: 0.5)),
+                if (unit.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  Text(unit, style: GoogleFonts.notoSansKr(fontSize: 13, color: const Color(0xFFA8ABB3), fontWeight: FontWeight.w500)),
+                ]
+              ],
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -470,20 +512,12 @@ class _TrackerPageState extends State<TrackerPage> {
     final tracker = Provider.of<TrackerProvider>(context, listen: false);
     final workout = await tracker.stopWorkout();
 
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('운동 완료'),
-        content: Text(
-            '운동 시간: ${_formatDuration(workout.durationSeconds)}\n이동 거리: ${(workout.totalDistanceMeters / 1000).toStringAsFixed(2)} km'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('확인'),
-          ),
-        ],
+    if (!context.mounted) return;
+    
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WorkoutSummaryPage(workout: workout),
       ),
     );
   }
@@ -495,33 +529,74 @@ class _TrackerPageState extends State<TrackerPage> {
     if (image == null) return;
 
     String? comment;
-    if (!mounted) return;
+    if (!context.mounted) return;
     await showDialog(
+      barrierColor: Colors.black.withOpacity(0.5),
       context: context,
       builder: (context) {
         final commentController = TextEditingController();
-        return AlertDialog(
-          title: const Text('메모 남기기'),
-          content: TextField(
-            controller: commentController,
-            decoration: const InputDecoration(hintText: '이 순간을 기록해보세요...'),
+        return BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: AlertDialog(
+            backgroundColor: const Color(0xFF1B2028).withOpacity(0.9),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: BorderSide(color: const Color(0xFF44484F).withOpacity(0.3)),
+            ),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('메모 남기기', style: GoogleFonts.notoSansKr(color: const Color(0xFFF1F3FC), fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text('기록은 기억보다 오래갑니다.', style: GoogleFonts.notoSansKr(color: const Color(0xFF6DDDFF), fontSize: 14)),
+              ],
+            ),
+            content: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F141A),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF44484F).withOpacity(0.5)),
+              ),
+              child: TextField(
+                controller: commentController,
+                maxLines: 4,
+                style: GoogleFonts.notoSansKr(color: const Color(0xFFF1F3FC), fontSize: 14, height: 1.5),
+                decoration: InputDecoration(
+                  hintText: '이 순간을 기록해보세요...',
+                  hintStyle: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 14),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.all(16),
+                ),
+              ),
+            ),
+            actionsPadding: const EdgeInsets.only(right: 20, bottom: 20, top: 10),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  comment = null;
+                  Navigator.pop(context);
+                },
+                child: Text('건너뛰기', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 15)),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () {
+                  comment = commentController.text;
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6DDDFF),
+                  foregroundColor: const Color(0xFF002C37),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text('저장', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, fontSize: 15)),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                comment = null;
-                Navigator.pop(context);
-              },
-              child: const Text('건너뛰기'),
-            ),
-            TextButton(
-              onPressed: () {
-                comment = commentController.text;
-                Navigator.pop(context);
-              },
-              child: const Text('저장'),
-            ),
-          ],
         );
       },
     );

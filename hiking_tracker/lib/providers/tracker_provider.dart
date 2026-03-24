@@ -391,7 +391,15 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     // 운동 종료 시 지도 시야 확보를 위해 패시브 트래커 재가동
     _startPassiveLocationTracking();
-    return workout;
+    return Workout(
+      id: workoutId,
+      startTime: workout.startTime,
+      endTime: workout.endTime,
+      durationSeconds: workout.durationSeconds,
+      totalDistanceMeters: workout.totalDistanceMeters,
+      averageSpeedMps: workout.averageSpeedMps,
+      maxAltitudeMeters: workout.maxAltitudeMeters,
+    );
   }
 
   void _checkIdleStatus() async {

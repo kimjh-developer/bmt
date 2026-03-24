@@ -4,6 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../models/models.dart';
+import '../../database/database_helper.dart';
+
 class MyPage extends StatefulWidget {
   const MyPage({super.key});
 
@@ -17,20 +20,41 @@ class _MyPageState extends State<MyPage> {
   final TextEditingController _nameController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
 
+  int _thisMonthDistanceMeters = 0;
+  double _thisMonthAltitudeMeters = 0;
+
   static const String _keyNickname = 'nickname';
   static const String _keyProfileImage = 'profile_image_path';
 
   @override
   void initState() {
     super.initState();
-    _loadPrefs();
+    _loadData();
   }
 
-  Future<void> _loadPrefs() async {
+  Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
+    final workouts = await DatabaseHelper.instance.getAllWorkouts();
+    
+    final now = DateTime.now();
+    int monthDist = 0;
+    double monthAlt = 0.0;
+
+    for (var w in workouts) {
+      try {
+        final wDate = DateTime.parse(w.startTime);
+        if (wDate.year == now.year && wDate.month == now.month) {
+          monthDist += w.totalDistanceMeters.toInt();
+          monthAlt += w.maxAltitudeMeters;
+        }
+      } catch (_) {}
+    }
+
     setState(() {
       _nickname = prefs.getString(_keyNickname) ?? '등산러';
       _profileImagePath = prefs.getString(_keyProfileImage);
+      _thisMonthDistanceMeters = monthDist;
+      _thisMonthAltitudeMeters = monthAlt;
     });
   }
 
@@ -56,44 +80,50 @@ class _MyPageState extends State<MyPage> {
   void _showPhotoBottomSheet() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40, height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1B2028),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.only(bottom: 24, top: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF44484F),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.green.shade50, shape: BoxShape.circle),
-                  child: const Icon(Icons.camera_alt, color: Colors.green),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFF6DDDFF).withOpacity(0.15), shape: BoxShape.circle),
+                    child: const Icon(Icons.camera_alt_rounded, color: Color(0xFF6DDDFF)),
+                  ),
+                  title: Text('사진 촬영', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+                  subtitle: Text('카메라로 새 사진 찍기', style: GoogleFonts.notoSansKr(fontSize: 13, color: const Color(0xFFA8ABB3))),
+                  onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); },
                 ),
-                title: Text('사진 촬영', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.w600)),
-                subtitle: Text('카메라로 새 사진 찍기', style: GoogleFonts.notoSansKr(fontSize: 12, color: Colors.grey)),
-                onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle),
-                  child: const Icon(Icons.photo_library, color: Colors.blueAccent),
+                const SizedBox(height: 8),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: const Color(0xFF00C3EB).withOpacity(0.15), shape: BoxShape.circle),
+                    child: const Icon(Icons.photo_library_rounded, color: Color(0xFF00C3EB)),
+                  ),
+                  title: Text('앨범에서 선택', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+                  subtitle: Text('갤러리에서 사진 불러오기', style: GoogleFonts.notoSansKr(fontSize: 13, color: const Color(0xFFA8ABB3))),
+                  onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); },
                 ),
-                title: Text('앨범에서 선택', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.w600)),
-                subtitle: Text('갤러리에서 사진 불러오기', style: GoogleFonts.notoSansKr(fontSize: 12, color: Colors.grey)),
-                onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); },
-              ),
-            ],
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),
@@ -105,23 +135,31 @@ class _MyPageState extends State<MyPage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('닉네임 변경', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF1B2028),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Text('닉네임 변경', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
         content: TextField(
           controller: _nameController,
-          style: GoogleFonts.notoSansKr(),
+          style: GoogleFonts.notoSansKr(color: const Color(0xFFF1F3FC)),
           decoration: InputDecoration(
             hintText: '새 닉네임 입력',
-            hintStyle: GoogleFonts.notoSansKr(color: Colors.grey),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            hintStyle: GoogleFonts.notoSansKr(color: const Color(0xFF72757D)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF44484F)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFF6DDDFF), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           ),
           maxLength: 20,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text('취소', style: GoogleFonts.notoSansKr(color: Colors.grey)),
+            child: Text('취소', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3))),
           ),
           ElevatedButton(
             onPressed: () {
@@ -129,9 +167,11 @@ class _MyPageState extends State<MyPage> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade600,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              backgroundColor: const Color(0xFF6DDDFF),
+              foregroundColor: const Color(0xFF002C37),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              elevation: 0,
             ),
             child: Text('저장', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold)),
           ),
@@ -143,154 +183,198 @@ class _MyPageState extends State<MyPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xFF0A0E14),
       appBar: AppBar(
         title: Text('마이페이지', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: const Color(0xFF0A0E14),
+        foregroundColor: const Color(0xFFF1F3FC),
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
       ),
       body: ListView(
         children: [
-          // ─── Profile Header ─────────────────────────────────────────────
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
-            child: Column(
+          // ─── Header ──────────────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(left: 24, top: 16, bottom: 8),
+            child: Text('BMT', style: GoogleFonts.spaceGrotesk(fontSize: 32, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+          ),
+          
+          // ─── Profile Section ─────────────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Row(
               children: [
-                // Avatar with camera overlay
                 GestureDetector(
                   onTap: _showPhotoBottomSheet,
                   child: Stack(
                     children: [
-                      CircleAvatar(
-                        radius: 56,
-                        backgroundColor: Colors.green.shade100,
-                        backgroundImage: (_profileImagePath != null && File(_profileImagePath!).existsSync())
-                            ? FileImage(File(_profileImagePath!))
-                            : null,
-                        child: (_profileImagePath == null || !File(_profileImagePath!).existsSync())
-                            ? Icon(Icons.person, size: 60, color: Colors.green.shade400)
-                            : null,
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFF6DDDFF).withOpacity(0.3), width: 2),
+                        ),
+                        child: CircleAvatar(
+                          radius: 48,
+                          backgroundColor: const Color(0xFF1B2028),
+                          backgroundImage: (_profileImagePath != null && File(_profileImagePath!).existsSync())
+                              ? FileImage(File(_profileImagePath!))
+                              : null,
+                          child: (_profileImagePath == null || !File(_profileImagePath!).existsSync())
+                              ? const Icon(Icons.person_rounded, size: 50, color: Color(0xFF44484F))
+                              : null,
+                        ),
                       ),
                       Positioned(
                         right: 0, bottom: 0,
                         child: Container(
                           width: 32, height: 32,
                           decoration: BoxDecoration(
-                            color: Colors.green.shade600,
+                            color: const Color(0xFF6DDDFF),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
+                            border: Border.all(color: const Color(0xFF0A0E14), width: 3),
                           ),
-                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                          child: const Icon(Icons.camera_alt_rounded, color: Color(0xFF0A0E14), size: 16),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                // Nickname
-                Text(
-                  _nickname,
-                  style: GoogleFonts.notoSansKr(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
-                ),
-                const SizedBox(height: 6),
-                OutlinedButton.icon(
-                  onPressed: _showEditNicknameDialog,
-                  icon: const Icon(Icons.edit, size: 14),
-                  label: Text('닉네임 변경', style: GoogleFonts.notoSansKr(fontSize: 13)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.green.shade700,
-                    side: BorderSide(color: Colors.green.shade300),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_nickname, style: GoogleFonts.notoSansKr(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+                      const SizedBox(height: 4),
+                      Text('BMT 탐험가', style: GoogleFonts.notoSansKr(fontSize: 14, color: const Color(0xFF6DDDFF))),
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        onPressed: _showEditNicknameDialog,
+                        icon: const Icon(Icons.edit_rounded, size: 14),
+                        label: Text('프로필 수정', style: GoogleFonts.notoSansKr(fontSize: 13, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFF1F3FC),
+                          side: BorderSide(color: const Color(0xFF44484F).withOpacity(0.5)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          minimumSize: const Size(0, 36),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: 12),
-
-          // ─── App Info Card ───────────────────────────────────────────────
-          _buildSectionCard(
-            children: [
-              _buildInfoRow(Icons.info_outline, '앱 버전', 'v1.0'),
-              const Divider(height: 1),
-              _buildInfoRow(Icons.person_outline, '제작자', '김주형'),
-              const Divider(height: 1),
-              _buildInfoRow(Icons.email_outlined, '이메일', 'fylfot@naver.com'),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-
-          // ─── App Concept Card ────────────────────────────────────────────
-          _buildSectionCard(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
+          // ─── Monthly Stats ─────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B2028),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('이번 달 기록', style: GoogleFonts.notoSansKr(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF6DDDFF))),
+                const SizedBox(height: 20),
+                Row(
                   children: [
-                    Icon(Icons.landscape, color: Colors.green.shade600, size: 28),
-                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('BMT', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, fontSize: 16)),
-                          Text('Busan Mountain Tracking', style: GoogleFonts.notoSansKr(fontSize: 13, color: Colors.grey.shade600)),
-                          const SizedBox(height: 4),
+                          Text('이번 달 누적 거리', style: GoogleFonts.notoSansKr(fontSize: 12, color: const Color(0xFFA8ABB3))),
+                          const SizedBox(height: 8),
                           Text(
-                            '대한민국 산봉우리 13,000+개 데이터를 기반으로\n산행 경로와 정상 정복을 기록하는 도우미 앱입니다.',
-                            style: GoogleFonts.notoSansKr(fontSize: 12, color: Colors.grey.shade600, height: 1.6),
+                            '${(_thisMonthDistanceMeters / 1000).toStringAsFixed(2)} km',
+                            style: GoogleFonts.spaceGrotesk(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('이번 달 누적 고도', style: GoogleFonts.notoSansKr(fontSize: 12, color: const Color(0xFFA8ABB3))),
+                          const SizedBox(height: 8),
+                          Text(
+                            '${_thisMonthAltitudeMeters.toStringAsFixed(0)} m',
+                            style: GoogleFonts.spaceGrotesk(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC)),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
 
+          // ─── Service Intro ─────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B2028),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: Color(0xFF6DDDFF), size: 18),
+                    const SizedBox(width: 8),
+                    Text('BMT 서비스 소개', style: GoogleFonts.notoSansKr(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFF6DDDFF))),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'BMT(Best Mountain Tracker)는 등산객과 트레일 러너를 위한 정밀 경로 추적 및 고도 분석 플랫폼입니다. 사용자의 실시간 위치를 기반으로 최적의 경로를 제안하며, 등반 데이터를 시각화하여 더 안전하고 스마트한 아웃도어 경험을 제공합니다. Feat. whiteTiger!',
+                  style: GoogleFonts.notoSansKr(fontSize: 14, color: const Color(0xFFA8ABB3), height: 1.6),
+                ),
+              ],
+            ),
+          ),
+
+          // ─── Dev Info ─────────────────────────────────────────
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B2028),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              children: [
+                _buildInfoRow('개발자', 'barco_the_Walrus'),
+                _buildInfoRow('문의 이메일', 'fylfot@naver.com'),
+                _buildInfoRow('앱 버전', 'v1.0 (Stable)'),
+              ],
+            ),
+          ),
+          
           const SizedBox(height: 32),
         ],
       ),
     );
   }
 
-  Widget _buildSectionCard({required List<Widget> children}) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(children: children),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, String value) {
+  Widget _buildInfoRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: Colors.green.shade600, size: 20),
-          const SizedBox(width: 12),
-          Text(label, style: GoogleFonts.notoSansKr(fontSize: 14, color: Colors.grey.shade600)),
-          const Spacer(),
-          Text(value, style: GoogleFonts.notoSansKr(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87)),
+          Text(label, style: GoogleFonts.notoSansKr(fontSize: 14, color: const Color(0xFFA8ABB3))),
+          Text(value, style: GoogleFonts.notoSansKr(fontSize: 14, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
         ],
       ),
     );
   }
 }
-

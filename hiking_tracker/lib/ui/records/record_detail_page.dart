@@ -3,8 +3,7 @@ import '../../models/models.dart';
 import '../../database/database_helper.dart';
 import '../widgets/unified_map_view.dart';
 import 'package:intl/intl.dart';
-import 'dart:typed_data';
-import '../../utils/marker_generator.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'dart:io';
 
 class RecordDetailPage extends StatefulWidget {
@@ -22,19 +21,11 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
   List<Photo> _photos = [];
   bool _isLoading = true;
   double _cumulativeAltitude = 0.0;
-  Map<String, Uint8List> _markerCache = {};
 
   @override
   void initState() {
     super.initState();
-    _initCustomMarkers();
     _loadData();
-  }
-
-  Future<void> _initCustomMarkers() async {
-    _markerCache['start'] = await MarkerGenerator.createTextMarker('S', backgroundColor: Colors.green, size: 80);
-    _markerCache['end'] = await MarkerGenerator.createTextMarker('E', backgroundColor: Colors.red, size: 80);
-    if (mounted) setState(() {});
   }
 
   Future<void> _loadData() async {
@@ -54,13 +45,6 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
         _isLoading = false;
       });
     }
-
-    // Load actual image markers
-    for (var p in photos) {
-      final key = 'photo_${p.id}';
-      _markerCache[key] = await MarkerGenerator.createImageMarker(p.imagePath, size: 120);
-    }
-    if (mounted) setState(() {});
   }
 
   String _formatDuration(int seconds) {
@@ -73,67 +57,187 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
 
   String _formatDateTime(String isoString) {
     final dt = DateTime.parse(isoString);
-    return DateFormat('yyyy-MM-dd HH:mm').format(dt);
+    return DateFormat('yyyy. MM. dd  HH:mm').format(dt);
   }
 
   void _openPhotoGallery(int initialIndex) {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (context) => Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          title: Text('${initialIndex + 1} / ${_photos.length}'),
-        ),
-        body: PageView.builder(
-          controller: PageController(initialPage: initialIndex),
-          itemCount: _photos.length,
-          itemBuilder: (context, index) {
-            final photo = _photos[index];
-            return Stack(
-              children: [
-                Positioned.fill(
-                  child: InteractiveViewer(
-                    child: Center(
+        backgroundColor: const Color(0xFF0A0E14),
+        body: Stack(
+          children: [
+            PageView.builder(
+              controller: PageController(initialPage: initialIndex),
+              itemCount: _photos.length,
+              itemBuilder: (context, index) {
+                final photo = _photos[index];
+                
+                double altitude = 0.0;
+                if (_points.isNotEmpty) {
+                  try {
+                    final photoTime = DateTime.parse(photo.timestamp);
+                    LocationPoint closest = _points.first;
+                    int minDiff = (DateTime.parse(closest.timestamp).difference(photoTime)).abs().inMilliseconds;
+                    for (final p in _points) {
+                      final diff = (DateTime.parse(p.timestamp).difference(photoTime)).abs().inMilliseconds;
+                      if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = p;
+                      }
+                    }
+                    altitude = closest.altitude;
+                  } catch (_) {}
+                }
+
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    InteractiveViewer(
                       child: Image.file(
                         File(photo.imagePath),
-                        fit: BoxFit.contain,
+                        fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => const Center(
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.broken_image, color: Colors.grey, size: 100),
+                              Icon(Icons.broken_image, color: Color(0xFF44484F), size: 80),
                               SizedBox(height: 16),
-                              Text('사진 파일을 찾을 수 없습니다.', style: TextStyle(color: Colors.white)),
+                              Text('사진 파일을 찾을 수 없습니다.', style: TextStyle(color: Color(0xFFA8ABB3))),
                             ],
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                if (photo.comment != null && photo.comment!.isNotEmpty)
-                  Positioned(
-                    bottom: 40,
-                    left: 20,
-                    right: 20,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Text(
-                        photo.comment!,
-                        style: const TextStyle(color: Colors.white, fontSize: 16),
-                        textAlign: TextAlign.center,
+                    // Gradient Overlay for text readability
+                    Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: 450,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              const Color(0xFF0A0E14),
+                              const Color(0xFF0A0E14).withOpacity(0.8),
+                              const Color(0xFF0A0E14).withOpacity(0.0),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
+                    // Information Panel
+                    Positioned(
+                      bottom: 40,
+                      left: 20,
+                      right: 20,
+                      child: Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (photo.comment != null && photo.comment!.isNotEmpty) ...[
+                              Text('그날의 기록', style: GoogleFonts.notoSansKr(color: const Color(0xFF6DDDFF), fontSize: 13, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              Text(
+                                photo.comment!,
+                                style: GoogleFonts.notoSansKr(color: const Color(0xFFF1F3FC), fontSize: 18, height: 1.4),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('고도', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 12)),
+                                    const SizedBox(height: 4),
+                                    Text('${altitude.toStringAsFixed(0)} m', style: GoogleFonts.spaceGrotesk(color: const Color(0xFFF1F3FC), fontSize: 18, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('위치 (위도, 경도)', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 12)),
+                                    const SizedBox(height: 4),
+                                    Text('${photo.latitude.toStringAsFixed(4)}, ${photo.longitude.toStringAsFixed(4)}', style: GoogleFonts.spaceGrotesk(color: const Color(0xFFF1F3FC), fontSize: 16, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('촬영 일시', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 12)),
+                                const SizedBox(height: 4),
+                                Text(_formatDateTime(photo.timestamp), style: GoogleFonts.spaceGrotesk(color: const Color(0xFFF1F3FC), fontSize: 16, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 32),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 56,
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1B2028),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    side: BorderSide(color: const Color(0xFF44484F).withOpacity(0.5)),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: Text(
+                                  '지도에서 보기',
+                                  style: GoogleFonts.notoSansKr(fontSize: 16, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            // View Counter
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B2028).withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
                   ),
-              ],
-            );
-          },
+                  child: Text(
+                    '사진 상세',
+                    style: GoogleFonts.notoSansKr(color: const Color(0xFFF1F3FC), fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+            // Close Button
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 8,
+              right: 16,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ],
         ),
       ),
     ));
@@ -146,138 +250,167 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
     final UnifiedLatLng? endPinPos = routePoints.length > 1 ? routePoints.last : null;
 
     return Scaffold(
+      backgroundColor: const Color(0xFF0A0E14),
       appBar: AppBar(
-        title: const Text('기록 상세'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        title: Text('기록 상세', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+        backgroundColor: const Color(0xFF0A0E14),
+        foregroundColor: const Color(0xFFF1F3FC),
         elevation: 0,
         actions: [
           if (_photos.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.photo_library, color: Colors.blueAccent),
-              onPressed: () => _openPhotoGallery(0),
-              tooltip: '사진 모아보기',
+            Container(
+              margin: const EdgeInsets.only(right: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1B2028),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.photo_library_rounded, color: Color(0xFF6DDDFF), size: 20),
+                onPressed: () => _openPhotoGallery(0),
+                tooltip: '사진 모아보기',
+              ),
             ),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF6DDDFF)))
           : Column(
               children: [
-                // ── 지도 영역 ─────────────────────────────────────────────
+                // ── 지도 영역 (Dark Theme) ─────────────────────────────────────────────
                 Expanded(
                   flex: 3,
                   child: initialCenter == null
-                      ? const Center(child: Text('위치 데이터가 없습니다.'))
-                      : UnifiedMapView(
-                          initialCenter: initialCenter,
-                          initialZoom: 15.0,
-                          markers: {
-                            UnifiedMarker(
-                              id: 'start',
-                              latitude: initialCenter.latitude,
-                              longitude: initialCenter.longitude,
-                              title: '출발',
-                              iconBytes: _markerCache['start'],
-                              color: Colors.green,
-                              zIndex: 1,
-                            ),
-                            if (endPinPos != null)
-                              UnifiedMarker(
-                                id: 'end',
-                                latitude: endPinPos.latitude,
-                                longitude: endPinPos.longitude,
-                                title: '도착',
-                                iconBytes: _markerCache['end'],
-                                color: Colors.red,
-                                zIndex: 1,
-                              ),
-                            ..._photos.asMap().entries.map((entry) {
-                              int idx = entry.key;
-                              Photo p = entry.value;
-                              return UnifiedMarker(
-                                id: 'photo_${p.id}',
-                                latitude: p.latitude,
-                                longitude: p.longitude,
-                                iconBytes: _markerCache['photo_${p.id}'],
-                                color: Colors.orange,
-                                zIndex: 10,
-                                onTap: () => _openPhotoGallery(idx),
-                              );
-                            }),
-                          },
-                          polylines: {
-                            if (routePoints.isNotEmpty)
-                              UnifiedPolyline(
-                                id: 'route',
-                                points: routePoints,
-                                color: Colors.blueAccent,
-                                width: 5.0,
-                              ),
-                          },
-                          onMapCreated: (controller) {
-                            _unifiedController = controller;
-                            if (routePoints.isNotEmpty) {
-                              Future.delayed(const Duration(milliseconds: 500), () {
-                                _unifiedController?.fitBounds(routePoints);
-                              });
-                            }
-                          },
-                        ),
-                ),
-                // ── 상세 정보 영역 ──────────────────────────────────────────
-                Expanded(
-                  flex: 2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -4))
-                      ]
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      ? Center(child: Text('위치 데이터가 없습니다.', style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3))))
+                      : Stack(
                           children: [
-                            Text(
-                              _formatDateTime(widget.workout.startTime),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: -0.5),
+                            UnifiedMapView(
+                              initialCenter: initialCenter,
+                              initialZoom: 15.0,
+                              markers: {
+                                UnifiedMarker(
+                                  id: 'start',
+                                  latitude: initialCenter.latitude,
+                                  longitude: initialCenter.longitude,
+                                  title: '출발',
+                                  color: Colors.green,
+                                  zIndex: 1,
+                                ),
+                                if (endPinPos != null)
+                                  UnifiedMarker(
+                                    id: 'end',
+                                    latitude: endPinPos.latitude,
+                                    longitude: endPinPos.longitude,
+                                    title: '도착',
+                                    color: Colors.red,
+                                    zIndex: 1,
+                                  ),
+                                // Photo markers mapped to generic blue pin native markers
+                                ..._photos.asMap().entries.map((entry) {
+                                  int idx = entry.key;
+                                  Photo p = entry.value;
+                                  return UnifiedMarker(
+                                    id: 'photo_${p.id}',
+                                    latitude: p.latitude,
+                                    longitude: p.longitude,
+                                    title: '사진 ${idx + 1}',
+                                    color: Colors.blueAccent,
+                                    zIndex: 10,
+                                    onTap: () => _openPhotoGallery(idx),
+                                  );
+                                }),
+                              },
+                              polylines: {
+                                if (routePoints.isNotEmpty)
+                                  UnifiedPolyline(
+                                    id: 'route',
+                                    points: routePoints,
+                                    color: const Color(0xFF6DDDFF),
+                                    width: 5.0,
+                                  ),
+                              },
+                              onMapCreated: (controller) {
+                                _unifiedController = controller;
+                                if (routePoints.isNotEmpty) {
+                                  Future.delayed(const Duration(milliseconds: 500), () {
+                                    _unifiedController?.fitBounds(routePoints);
+                                  });
+                                }
+                              },
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Text(
-                                '기록 완료',
-                                style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.w800, fontSize: 13),
+                            // Map Overlay Gradient at bottom for seamless transition
+                            Positioned(
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 40,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      const Color(0xFF0A0E14).withOpacity(0.0),
+                                      const Color(0xFF0A0E14),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 24),
-                        Expanded(
-                          child: GridView.count(
-                            crossAxisCount: 3,
-                            childAspectRatio: 1.5,
-                            mainAxisSpacing: 16,
-                            crossAxisSpacing: 16,
-                            physics: const NeverScrollableScrollPhysics(),
-                            children: [
-                              _buildInfoItem('시간', _formatDuration(widget.workout.durationSeconds), Icons.timer),
-                              _buildInfoItem('거리', '${(widget.workout.totalDistanceMeters / 1000).toStringAsFixed(2)}km', Icons.route),
-                              _buildInfoItem('평균속도', '${(widget.workout.averageSpeedMps * 3.6).toStringAsFixed(1)}km/h', Icons.speed),
-                              _buildInfoItem('누적 고도', '${_cumulativeAltitude.toStringAsFixed(0)}m', Icons.trending_up),
-                              _buildInfoItem('최고 고도', '${widget.workout.maxAltitudeMeters.toStringAsFixed(0)}m', Icons.terrain),
-                            ],
+                ),
+                
+                // ── 하단 정보 패널 ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF0A0E14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _formatDateTime(widget.workout.startTime),
+                            style: GoogleFonts.spaceGrotesk(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC), letterSpacing: -0.5),
                           ),
-                        ),
-                      ],
-                    ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF6DDDFF).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFF6DDDFF).withOpacity(0.3)),
+                            ),
+                            child: Text(
+                              '기록 완료',
+                              style: GoogleFonts.notoSansKr(color: const Color(0xFF6DDDFF), fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 32),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _buildInfoItem('시간', _formatDuration(widget.workout.durationSeconds), Icons.timer),
+                          _buildInfoItem('거리', '${(widget.workout.totalDistanceMeters / 1000).toStringAsFixed(2)}', Icons.route, 'km'),
+                          _buildInfoItem('평균속도', '${(widget.workout.averageSpeedMps * 3.6).toStringAsFixed(1)}', Icons.speed, 'km/h'),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          _buildInfoItem('누적 고도', '${_cumulativeAltitude.toStringAsFixed(0)}', Icons.trending_up, 'm'),
+                          const SizedBox(width: 48),
+                          _buildInfoItem('최고 고도', '${widget.workout.maxAltitudeMeters.toStringAsFixed(0)}', Icons.terrain, 'm'),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                   ),
                 ),
               ],
@@ -285,20 +418,31 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
     );
   }
 
-  Widget _buildInfoItem(String label, String value, IconData icon) {
+  Widget _buildInfoItem(String label, String value, IconData icon, [String unit = '']) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
           children: [
-            Icon(icon, size: 16, color: Colors.grey.shade600),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 13, fontWeight: FontWeight.w500)),
+            Icon(icon, size: 16, color: const Color(0xFF6DDDFF)),
+            const SizedBox(width: 6),
+            Text(label, style: GoogleFonts.notoSansKr(color: const Color(0xFFA8ABB3), fontSize: 13, fontWeight: FontWeight.w500)),
           ],
         ),
-        const SizedBox(height: 6),
-        Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(value, style: GoogleFonts.spaceGrotesk(fontSize: 22, fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC), letterSpacing: 0.5)),
+            if (unit.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              Text(unit, style: GoogleFonts.notoSansKr(fontSize: 14, color: const Color(0xFFA8ABB3), fontWeight: FontWeight.w500)),
+            ]
+          ],
+        ),
       ],
     );
   }
