@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../models/models.dart';
 import '../../database/database_helper.dart';
+import '../../utils/file_utils.dart';
 
 class MyPage extends StatefulWidget {
   const MyPage({super.key});
@@ -70,8 +71,9 @@ class _MyPageState extends State<MyPage> {
       final XFile? file = await _picker.pickImage(source: source, imageQuality: 85);
       if (file == null) return;
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_keyProfileImage, file.path);
-      setState(() => _profileImagePath = file.path);
+      final savedFileName = await FileUtils.saveImageToDocuments(file.path);
+      await prefs.setString(_keyProfileImage, savedFileName);
+      setState(() => _profileImagePath = savedFileName);
     } catch (e) {
       debugPrint('Image pick error: $e');
     }
@@ -217,10 +219,10 @@ class _MyPageState extends State<MyPage> {
                         child: CircleAvatar(
                           radius: 48,
                           backgroundColor: const Color(0xFF1B2028),
-                          backgroundImage: (_profileImagePath != null && File(_profileImagePath!).existsSync())
-                              ? FileImage(File(_profileImagePath!))
+                          backgroundImage: (_profileImagePath != null && File(FileUtils.getFullImagePath(_profileImagePath!)).existsSync())
+                              ? FileImage(File(FileUtils.getFullImagePath(_profileImagePath!)))
                               : null,
-                          child: (_profileImagePath == null || !File(_profileImagePath!).existsSync())
+                          child: (_profileImagePath == null || !File(FileUtils.getFullImagePath(_profileImagePath!)).existsSync())
                               ? const Icon(Icons.person_rounded, size: 50, color: Color(0xFF44484F))
                               : null,
                         ),

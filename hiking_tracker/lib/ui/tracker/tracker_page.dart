@@ -10,7 +10,9 @@ import '../../providers/tracker_provider.dart';
 import '../widgets/unified_map_view.dart';
 import '../../models/models.dart';
 import '../../utils/marker_generator.dart';
+import '../../utils/file_utils.dart';
 import 'workout_summary_page.dart';
+import 'dart:io';
 
 class TrackerPage extends StatefulWidget {
   const TrackerPage({super.key});
@@ -321,7 +323,7 @@ class _TrackerPageState extends State<TrackerPage> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFF44484F).withOpacity(0.3), width: 1),
                             image: DecorationImage(
-                              image: AssetImage(tracker.currentWorkoutPhotos[index].imagePath),
+                              image: FileImage(File(FileUtils.getFullImagePath(tracker.currentWorkoutPhotos[index].imagePath))),
                               fit: BoxFit.cover,
                             ),
                           ),
@@ -602,8 +604,9 @@ class _TrackerPageState extends State<TrackerPage> {
     );
 
     if (tracker.currentPosition != null) {
+      final savedFileName = await FileUtils.saveImageToDocuments(image.path);
       tracker.addPhotoToCurrentWorkout(
-        image.path,
+        savedFileName,
         tracker.currentPosition!.latitude,
         tracker.currentPosition!.longitude,
         comment,

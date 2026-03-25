@@ -3,10 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'database/database_helper.dart';
 import 'ui/splash_screen.dart';
-import 'providers/tracker_provider.dart';
+import 'providers/tracker_provider.dart';import 'utils/file_utils.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FileUtils.init();
   await DatabaseHelper.instance.loadMountainsIfEmpty();
   runApp(const MyApp());
 }

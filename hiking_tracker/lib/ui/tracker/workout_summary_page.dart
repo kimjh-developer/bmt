@@ -5,6 +5,7 @@ import '../../database/database_helper.dart';
 import '../widgets/unified_map_view.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../utils/file_utils.dart';
 
 class WorkoutSummaryPage extends StatefulWidget {
   final Workout workout;
@@ -235,7 +236,7 @@ class _WorkoutSummaryPageState extends State<WorkoutSummaryPage> {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
                                   child: Image.file(
-                                    File(photo.imagePath),
+                                    File(FileUtils.getFullImagePath(photo.imagePath)),
                                     width: 100,
                                     height: 100,
                                     fit: BoxFit.cover,
@@ -335,7 +336,7 @@ class _WorkoutSummaryPageState extends State<WorkoutSummaryPage> {
                   child: InteractiveViewer(
                     child: Center(
                       child: Image.file(
-                        File(photo.imagePath),
+                        File(FileUtils.getFullImagePath(photo.imagePath)),
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) => const Center(
                           child: Column(

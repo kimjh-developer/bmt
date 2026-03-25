@@ -5,6 +5,7 @@ import '../widgets/unified_map_view.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:io';
+import '../../utils/file_utils.dart';
 
 class RecordDetailPage extends StatefulWidget {
   final Workout workout;
@@ -94,7 +95,7 @@ class _RecordDetailPageState extends State<RecordDetailPage> {
                   children: [
                     InteractiveViewer(
                       child: Image.file(
-                        File(photo.imagePath),
+                        File(FileUtils.getFullImagePath(photo.imagePath)),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) => const Center(
                           child: Column(

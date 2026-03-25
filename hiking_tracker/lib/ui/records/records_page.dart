@@ -5,6 +5,7 @@ import '../../models/models.dart';
 import 'record_detail_page.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../utils/file_utils.dart';
 
 class RecordsPage extends StatefulWidget {
   const RecordsPage({super.key});
@@ -96,7 +97,7 @@ class _RecordsPageState extends State<RecordsPage> {
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E14),
       appBar: AppBar(
-        title: Text('운동 기록', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
+        title: Text('운동 기록\n(앱삭제시 기록이 모두 삭제됩니다.)', style: GoogleFonts.notoSansKr(fontWeight: FontWeight.bold, color: const Color(0xFFF1F3FC))),
         backgroundColor: const Color(0xFF0A0E14),
         elevation: 0,
         centerTitle: false,
@@ -171,7 +172,7 @@ class _RecordsPageState extends State<RecordsPage> {
                             children: [
                               isLocalFile
                                   ? Image.file(
-                                      File(displayImagePath),
+                                      File(FileUtils.getFullImagePath(displayImagePath)),
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) => _buildFallbackImage(),
                                     )
