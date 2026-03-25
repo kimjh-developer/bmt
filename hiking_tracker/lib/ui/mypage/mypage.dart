@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../models/models.dart';
 import '../../database/database_helper.dart';
 import '../../utils/file_utils.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class MyPage extends StatefulWidget {
   const MyPage({super.key});
@@ -23,6 +24,7 @@ class _MyPageState extends State<MyPage> {
 
   int _thisMonthDistanceMeters = 0;
   double _thisMonthAltitudeMeters = 0;
+  String _appVersion = '로딩중...';
 
   static const String _keyNickname = 'nickname';
   static const String _keyProfileImage = 'profile_image_path';
@@ -57,6 +59,21 @@ class _MyPageState extends State<MyPage> {
       _thisMonthDistanceMeters = monthDist;
       _thisMonthAltitudeMeters = monthAlt;
     });
+
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = 'v${packageInfo.version} (${packageInfo.buildNumber})';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _appVersion = '버전 정보 없음';
+        });
+      }
+    }
   }
 
   Future<void> _saveNickname(String name) async {
@@ -356,7 +373,7 @@ class _MyPageState extends State<MyPage> {
               children: [
                 _buildInfoRow('개발자', 'barco_the_Walrus'),
                 _buildInfoRow('문의 이메일', 'fylfot@naver.com'),
-                _buildInfoRow('앱 버전', 'v1.0 (Stable)'),
+                _buildInfoRow('앱 버전', _appVersion),
               ],
             ),
           ),
